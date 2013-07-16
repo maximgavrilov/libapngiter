@@ -27,7 +27,7 @@
 // a framebuffer by this library. After each frame has been decoded, a user provided callback is invoked
 // to allow for processing of the decoded data in the framebuffer.
 
-#include "libapng.h"
+#include "libapngiter.h"
 
 #if defined(_MSC_VER) && _MSC_VER >= 1300
 #define swap16(data) _byteswap_ushort(data)
