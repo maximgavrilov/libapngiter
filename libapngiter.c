@@ -30,8 +30,6 @@
 #include "libapngiter.h"
 #include "zlib.h"
 
-#define PNG_ZBUF_SIZE  32768
-
 #define PNG_CHUNK_IHDR 0x49484452
 #define PNG_CHUNK_PLTE 0x504C5445
 #define PNG_CHUNK_tRNS 0x74524E53
@@ -83,7 +81,9 @@ struct libapngiter_state {
     libapngiter_frame_func frame_func;
     void *userData;
     
-    int             imagesize, zbuf_size, zsize;
+    int imagesize;
+    int zsize;
+    
     unsigned int rowbytes;
     unsigned int width;
     unsigned int height;
@@ -104,7 +104,7 @@ struct libapngiter_state {
     unsigned char * pOut;
     unsigned char * pRest;
     unsigned char * pTemp;
-    unsigned char * pData;
+    unsigned char * pZBuffer;
     unsigned char * pDst;
 
     APNGCommonData common;
@@ -530,7 +530,7 @@ static void compose6(unsigned char * dst, unsigned int dstbytes, unsigned char *
 static void compose(libapngiter_state *state)
 {
     state->pDst = state->pOut + state->delta_y * state->outrow + state->delta_x * 4;
-    unpack(state->pTemp, state->imagesize, state->pData, state->zsize, state->delta_height, state->rowbytes, state->bpp, &state->common);
+    unpack(state->pTemp, state->imagesize, state->pZBuffer, state->zsize, state->delta_height, state->rowbytes, state->bpp, &state->common);
     switch (state->coltype)
     {
         case 0: compose0(state->pDst, state->outrow, state->pTemp, state->rowbytes+1, state->delta_width, state->delta_height, state->bop, state->depth, &state->common); break;
@@ -713,15 +713,16 @@ libapngiter_state *libapngiter_open(char *apngPath, libapngiter_frame_func frame
     state->rowbytes = ROWBYTES(state->pixeldepth, state->width);
     
     state->imagesize = (state->rowbytes + 1) * state->height;
-    state->zbuf_size = state->imagesize + ((state->imagesize + 7) >> 3) + ((state->imagesize + 63) >> 6) + 11;
     
     state->outrow = state->width * 4;
     state->outimg = state->height * state->outrow;
     
+    int zbuf_size = state->imagesize + ((state->imagesize + 7) >> 3) + ((state->imagesize + 63) >> 6) + 11;
+    
     state->pOut =(unsigned char *)malloc(state->outimg);
     state->pRest=(unsigned char *)malloc(state->outimg);
     state->pTemp=(unsigned char *)malloc(state->imagesize);
-    state->pData=(unsigned char *)malloc(state->zbuf_size);
+    state->pZBuffer=(unsigned char *)malloc(zbuf_size);
     
     /* apng decoding - begin */
     memset(state->pOut, 0, state->outimg);
@@ -729,13 +730,12 @@ libapngiter_state *libapngiter_open(char *apngPath, libapngiter_frame_func frame
     return state;
 }
 
-void
-libapngiter_close(libapngiter_state *state)
+void libapngiter_close(libapngiter_state *state)
 {
     inflateEnd(&state->common.zstream);
     
-    if (state->pData) {
-        free(state->pData);
+    if (state->pZBuffer) {
+        free(state->pZBuffer);
     }
     if (state->pTemp) {
         free(state->pTemp);
@@ -756,8 +756,7 @@ libapngiter_close(libapngiter_state *state)
 
 // This methods opens an APNG file
 
-uint32_t
-libapngiter_next_frame(libapngiter_state *state, libapngiter_frame *outFrame)
+uint32_t libapngiter_next_frame(libapngiter_state *state, libapngiter_frame *outFrame)
 {
     unsigned int    i, j;
     unsigned int    len, chunk, crc;
@@ -867,7 +866,7 @@ libapngiter_next_frame(libapngiter_state *state, libapngiter_frame *outFrame)
             state->zsize = 0;
             state->num_idat++;
         }
-        fread(state->pData + state->zsize, 1, len, apngFile);
+        fread(state->pZBuffer + state->zsize, 1, len, apngFile);
         state->zsize += len;
     }
     else if (chunk == PNG_CHUNK_fdAT)
@@ -879,7 +878,7 @@ libapngiter_next_frame(libapngiter_state *state, libapngiter_frame *outFrame)
             state->zsize = 0;
             state->num_idat++;
         }
-        fread(state->pData + state->zsize, 1, len, apngFile);
+        fread(state->pZBuffer + state->zsize, 1, len, apngFile);
         state->zsize += len;
     }
     else if (chunk == PNG_CHUNK_IEND)
@@ -913,8 +912,7 @@ libapngiter_next_frame(libapngiter_state *state, libapngiter_frame *outFrame)
 
 //#define DEBUG_PRINT_FRAME_DURATION
 
-float
-libapng_frame_delay(uint32_t numerator, uint32_t denominator)
+float libapng_frame_delay(uint32_t numerator, uint32_t denominator)
 {
     // frameDuration : time that specific frame will be visible
     // 1/100 is the default if both numerator and denominator are zero
