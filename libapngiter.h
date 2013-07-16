@@ -40,30 +40,35 @@
 #include <limits.h>
 #include <unistd.h>
 
-#define LIBAPNG_ERROR_CODE_INVALID_INPUT 1
-#define LIBAPNG_ERROR_CODE_INVALID_FILENAME 2
-#define LIBAPNG_ERROR_CODE_WRITE_FAILED 3
-#define LIBAPNG_ERROR_CODE_READ_FAILED 4
+#define LIBAPNGITER_ERROR_CODE_OK 0
+#define LIBAPNGITER_ERROR_CODE_INVALID_INPUT 1
+#define LIBAPNGITER_ERROR_CODE_INVALID_FILENAME 2
+#define LIBAPNGITER_ERROR_CODE_WRITE_FAILED 3
+#define LIBAPNGITER_ERROR_CODE_READ_FAILED 4
+#define LIBAPNGITER_ERROR_CODE_FILE_END 5
+#define LIBAPNGITER_ERROR_CODE_STREAM_COMPLETE 6
+#define LIBAPNGITER_ERROR_CODE_STREAM_ERROR 7
 
-typedef int (*libapng_frame_func)(
-                                  uint32_t* framebuffer,
-                                  uint32_t framei,
-                                  uint32_t width, uint32_t height,
-                                  uint32_t delta_x, uint32_t delta_y, uint32_t delta_width, uint32_t delta_height,
-                                  uint32_t delay_num, uint32_t delay_den,
-                                  uint32_t bpp,
-                                  void *userData);
+typedef struct libapngiter_state libapngiter_state;
 
-FILE*
-libapng_open(char *apngPath);
+typedef struct libapngiter_frame {
+    uint32_t* framebuffer;
+    uint32_t framei;
+    uint32_t width;
+    uint32_t height;
+    uint32_t delta_x;
+    uint32_t delta_y;
+    uint32_t delta_width;
+    uint32_t delta_height;
+    uint32_t delay_num;
+    uint32_t delay_den;
+    uint32_t bpp;
+} libapngiter_frame;
 
-void
-libapng_close(FILE *apngFILE);
+typedef int (*libapngiter_frame_func)(libapngiter_frame *frame, void *userData);
 
-uint32_t
-libapng_main(FILE *apngFile, libapng_frame_func frame_func, void *userData);
-
-float
-libapng_frame_delay(uint32_t numerator, uint32_t denominator);
+libapngiter_state *libapngiter_open(char *apngPath, libapngiter_frame_func frame_func, void *userData);
+void libapngiter_close(libapngiter_state *state);
+uint32_t libapngiter_next_frame(libapngiter_state *state, libapngiter_frame *outFrame);
 
 #endif
