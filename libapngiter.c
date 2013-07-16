@@ -808,7 +808,6 @@ libapngiter_next_frame(libapngiter_state *state, libapngiter_frame *outFrame)
                 commonPtr->palsize = col+1;
             }
         }
-        crc = read32(apngFile);
     }
     else if (chunk == 0x74524E53) /* tRNS */
     {
@@ -829,13 +828,11 @@ libapngiter_next_frame(libapngiter_state *state, libapngiter_frame *outFrame)
             commonPtr->trns2 = readshort(&commonPtr->trns[2]);
             commonPtr->trns3 = readshort(&commonPtr->trns[4]);
         }
-        crc = read32(apngFile);
     }
     else if (chunk == 0x6163544C) /* acTL */
     {
         state->frames = read32(apngFile);
         state->loops  = read32(apngFile);
-        crc = read32(apngFile);
     }
     else if (chunk == 0x6663544C) /* fcTL */
     {
@@ -846,9 +843,6 @@ libapngiter_next_frame(libapngiter_state *state, libapngiter_frame *outFrame)
             }
             
             compose(state);
-            
-            //SavePNG(pOut, w, h, num_idat, frames);
-
             make_out(state, outFrame);
             
             if (state->dop == PNG_DISPOSE_OP_PREVIOUS) {
@@ -873,7 +867,6 @@ libapngiter_next_frame(libapngiter_state *state, libapngiter_frame *outFrame)
         state->d2  = read16(apngFile);
         fread(&state->dop, 1, 1, apngFile);
         fread(&state->bop, 1, 1, apngFile);
-        crc = read32(apngFile);
         
         if (state->num_fctl == 0)
         {
@@ -898,7 +891,6 @@ libapngiter_next_frame(libapngiter_state *state, libapngiter_frame *outFrame)
         }
         fread(state->pData + state->zsize, 1, len, apngFile);
         state->zsize += len;
-        crc = read32(apngFile);
     }
     else if (chunk == 0x66644154) /* fdAT */
     {
@@ -911,13 +903,10 @@ libapngiter_next_frame(libapngiter_state *state, libapngiter_frame *outFrame)
         }
         fread(state->pData + state->zsize, 1, len, apngFile);
         state->zsize += len;
-        crc = read32(apngFile);
     }
     else if (chunk == 0x49454E44) /* IEND */
     {
-        compose(state);
-        
-        //SavePNG(pOut, w, h, num_idat, frames);
+        compose(state);        
         make_out(state, outFrame);
         return LIBAPNGITER_ERROR_CODE_STREAM_COMPLETE;
     }
@@ -933,8 +922,9 @@ libapngiter_next_frame(libapngiter_state *state, libapngiter_frame *outFrame)
         if (notabc(c)) return LIBAPNGITER_ERROR_CODE_STREAM_ERROR;
         
         fseek( apngFile, len, SEEK_CUR );
-        crc = read32(apngFile);
     }
+    
+    crc = read32(apngFile);
     
     return LIBAPNGITER_ERROR_CODE_OK;
 }
