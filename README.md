@@ -1,4 +1,4 @@
 libapngiter
 ===========
 
-iteration port libapng by maxst at users.sourceforge.net
+iteration port libapng from maxst.users.sourceforge.net
