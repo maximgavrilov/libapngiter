@@ -28,34 +28,18 @@
 // to allow for processing of the decoded data in the framebuffer.
 
 #include "libapngiter.h"
-
-#if defined(_MSC_VER) && _MSC_VER >= 1300
-#define swap16(data) _byteswap_ushort(data)
-#define swap32(data) _byteswap_ulong(data)
-#elif defined(__linux__)
-#include <byteswap.h>
-#define swap16(data) bswap_16(data)
-#define swap32(data) bswap_32(data)
-#elif defined(__FreeBSD__)
-#include <sys/endian.h>
-#define swap16(data) bswap16(data)
-#define swap32(data) bswap32(data)
-#elif defined(__APPLE__)
-#include <libkern/OSByteOrder.h>
-#define swap16(data) OSSwapInt16(data)
-#define swap32(data) OSSwapInt32(data)
-#else
-static inline
-unsigned short swap16(unsigned short data) {return((data & 0xFF) << 8) | ((data >> 8) & 0xFF);}
-static inline
-unsigned int swap32(unsigned int data) {return((data & 0xFF) << 24) | ((data & 0xFF00) << 8) | ((data >> 8) & 0xFF00) | ((data >> 24) & 0xFF);}
-#endif
-
 #include "zlib.h"
 
-#pragma clang diagnostic ignored "-Wmissing-prototypes"
-
 #define PNG_ZBUF_SIZE  32768
+
+#define PNG_CHUNK_IHDR 0x49484452
+#define PNG_CHUNK_PLTE 0x504C5445
+#define PNG_CHUNK_tRNS 0x74524E53
+#define PNG_CHUNK_acTL 0x6163544C
+#define PNG_CHUNK_fcTL 0x6663544C
+#define PNG_CHUNK_IDAT 0x49444154
+#define PNG_CHUNK_fdAT 0x66644154
+#define PNG_CHUNK_IEND 0x49454E44
 
 #define PNG_DISPOSE_OP_NONE        0x00
 #define PNG_DISPOSE_OP_BACKGROUND  0x01
@@ -71,23 +55,16 @@ unsigned int swap32(unsigned int data) {return((data & 0xFF) << 24) | ((data & 0
 ((width) * (((unsigned int)(pixel_bits)) >> 3)) : \
 (( ((width) * ((unsigned int)(pixel_bits))) + 7) >> 3) )
 
-static const
-unsigned char   png_sign[8] = {137, 80, 78, 71, 13, 10, 26, 10};
+static const unsigned char png_sign[8] = {137, 80, 78, 71, 13, 10, 26, 10};
 
-static const
-int mask4[2]={240,15};
-static const
-int shift4[2]={4,0};
+static const int mask4[2]={240,15};
+static const int shift4[2]={4,0};
 
-static const
-int mask2[4]={192,48,12,3};
-static const
-int shift2[4]={6,4,2,0};
+static const int mask2[4]={192,48,12,3};
+static const int shift2[4]={6,4,2,0};
 
-static const
-int mask1[8]={128,64,32,16,8,4,2,1};
-static const
-int shift1[8]={7,6,5,4,3,2,1,0};
+static const int mask1[8]={128,64,32,16,8,4,2,1};
+static const int shift1[8]={7,6,5,4,3,2,1,0};
 
 typedef struct
 {
@@ -107,9 +84,18 @@ struct libapngiter_state {
     void *userData;
     
     int             imagesize, zbuf_size, zsize;
-    unsigned int    rowbytes;
-    unsigned int w, h, seq, w0, h0, x0, y0;
-    unsigned short  d1, d2;
+    unsigned int rowbytes;
+    unsigned int width;
+    unsigned int height;
+    
+    unsigned int seq;
+    unsigned int delta_width;
+    unsigned int delta_height;
+    unsigned int delta_x;
+    unsigned int delta_y;
+    unsigned short delay_num;
+    unsigned short delay_den;
+    
     unsigned int frames, loops, num_fctl, num_idat;
     unsigned char   dop, bop;
     unsigned char   depth, pixeldepth, bpp;
@@ -124,8 +110,7 @@ struct libapngiter_state {
     APNGCommonData common;
 };
 
-static inline
-unsigned int read32(FILE * f1)
+static inline unsigned int read32(FILE * f1)
 {
     unsigned char a, b, c, d;
     fread(&a, 1, 1, f1);
@@ -135,8 +120,7 @@ unsigned int read32(FILE * f1)
     return ((unsigned int)a<<24)+((unsigned int)b<<16)+((unsigned int)c<<8)+(unsigned int)d;
 }
 
-static inline
-unsigned short read16(FILE * f1)
+static inline unsigned short read16(FILE * f1)
 {
     unsigned char a, b;
     fread(&a, 1, 1, f1);
@@ -144,14 +128,12 @@ unsigned short read16(FILE * f1)
     return ((unsigned short)a<<8)+(unsigned short)b;
 }
 
-static inline
-unsigned short readshort(unsigned char * p)
+static inline unsigned short readshort(unsigned char * p)
 {
     return ((unsigned short)(*p)<<8)+(unsigned short)(*(p+1));
 }
 
-static inline
-void read_sub_row(unsigned char * row, unsigned int rowbytes, unsigned int bpp)
+static inline void read_sub_row(unsigned char * row, unsigned int rowbytes, unsigned int bpp)
 {
     unsigned int i;
     
@@ -159,8 +141,7 @@ void read_sub_row(unsigned char * row, unsigned int rowbytes, unsigned int bpp)
         row[i] += row[i-bpp];
 }
 
-static inline
-void read_up_row(unsigned char * row, unsigned char * prev_row, unsigned int rowbytes, unsigned int bpp)
+static inline void read_up_row(unsigned char * row, unsigned char * prev_row, unsigned int rowbytes, unsigned int bpp)
 {
     unsigned int i;
     
@@ -169,8 +150,7 @@ void read_up_row(unsigned char * row, unsigned char * prev_row, unsigned int row
             row[i] += prev_row[i];
 }
 
-static inline
-void read_average_row(unsigned char * row, unsigned char * prev_row, unsigned int rowbytes, unsigned int bpp)
+static inline void read_average_row(unsigned char * row, unsigned char * prev_row, unsigned int rowbytes, unsigned int bpp)
 {
     unsigned int i;
     
@@ -188,8 +168,7 @@ void read_average_row(unsigned char * row, unsigned char * prev_row, unsigned in
     }
 }
 
-static inline
-void read_paeth_row(unsigned char * row, unsigned char * prev_row, unsigned int rowbytes, unsigned int bpp)
+static inline void read_paeth_row(unsigned char * row, unsigned char * prev_row, unsigned int rowbytes, unsigned int bpp)
 {
     unsigned int i;
     int a, b, c, pa, pb, pc, p;
@@ -218,8 +197,7 @@ void read_paeth_row(unsigned char * row, unsigned char * prev_row, unsigned int 
     }
 }
 
-static inline
-void unpack(unsigned char * dst, unsigned int dst_size, unsigned char * src, unsigned int src_size, unsigned int h, unsigned int rowbytes, unsigned char bpp, APNGCommonData *commonPtr)
+static inline void unpack(unsigned char * dst, unsigned int dst_size, unsigned char * src, unsigned int src_size, unsigned int h, unsigned int rowbytes, unsigned char bpp, APNGCommonData *commonPtr)
 {
     unsigned int    j;
     unsigned char * row = dst;
@@ -248,7 +226,7 @@ void unpack(unsigned char * dst, unsigned int dst_size, unsigned char * src, uns
     }
 }
 
-void compose0(unsigned char * dst, unsigned int dstbytes, unsigned char * src, unsigned int srcbytes, unsigned int w, unsigned int h, unsigned int bop, unsigned char depth, APNGCommonData *commonPtr)
+static void compose0(unsigned char * dst, unsigned int dstbytes, unsigned char * src, unsigned int srcbytes, unsigned int w, unsigned int h, unsigned int bop, unsigned char depth, APNGCommonData *commonPtr)
 {
     unsigned int    i, j, g, a;
     unsigned char * sp;
@@ -289,7 +267,7 @@ void compose0(unsigned char * dst, unsigned int dstbytes, unsigned char * src, u
     }
 }
 
-void compose2(unsigned char * dst, unsigned int dstbytes, unsigned char * src, unsigned int srcbytes, unsigned int w, unsigned int h, unsigned int bop, unsigned char depth, APNGCommonData *commonPtr)
+static void compose2(unsigned char * dst, unsigned int dstbytes, unsigned char * src, unsigned int srcbytes, unsigned int w, unsigned int h, unsigned int bop, unsigned char depth, APNGCommonData *commonPtr)
 {
     unsigned int    i, j;
     unsigned int    r, g, b, a;
@@ -354,7 +332,7 @@ void compose2(unsigned char * dst, unsigned int dstbytes, unsigned char * src, u
     }
 }
 
-void compose3(unsigned char * dst, unsigned int dstbytes, unsigned char * src, unsigned int srcbytes, unsigned int w, unsigned int h, unsigned int bop, unsigned char depth, APNGCommonData *commonPtr)
+static void compose3(unsigned char * dst, unsigned int dstbytes, unsigned char * src, unsigned int srcbytes, unsigned int w, unsigned int h, unsigned int bop, unsigned char depth, APNGCommonData *commonPtr)
 {
     unsigned int    i, j;
     unsigned int    r, g, b, a;
@@ -430,7 +408,7 @@ void compose3(unsigned char * dst, unsigned int dstbytes, unsigned char * src, u
     commonPtr->allWrittenPalettePixelsAreOpaque = allWrittenPalettePixelsAreOpaque;
 }
 
-void compose4(unsigned char * dst, unsigned int dstbytes, unsigned char * src, unsigned int srcbytes, unsigned int w, unsigned int h, unsigned int bop, unsigned char depth)
+static void compose4(unsigned char * dst, unsigned int dstbytes, unsigned char * src, unsigned int srcbytes, unsigned int w, unsigned int h, unsigned int bop, unsigned char depth)
 {
     unsigned int    i, j, step;
     unsigned int    g, a, g2, a2;
@@ -485,7 +463,7 @@ void compose4(unsigned char * dst, unsigned int dstbytes, unsigned char * src, u
     }
 }
 
-void compose6(unsigned char * dst, unsigned int dstbytes, unsigned char * src, unsigned int srcbytes, unsigned int w, unsigned int h, unsigned int bop, unsigned char depth)
+static void compose6(unsigned char * dst, unsigned int dstbytes, unsigned char * src, unsigned int srcbytes, unsigned int w, unsigned int h, unsigned int bop, unsigned char depth)
 {
     unsigned int    i, j, step;
     unsigned int    r, g, b, a;
@@ -551,15 +529,15 @@ void compose6(unsigned char * dst, unsigned int dstbytes, unsigned char * src, u
 
 static void compose(libapngiter_state *state)
 {
-    state->pDst = state->pOut + state->y0 * state->outrow + state->x0 * 4;
-    unpack(state->pTemp, state->imagesize, state->pData, state->zsize, state->h0, state->rowbytes, state->bpp, &state->common);
+    state->pDst = state->pOut + state->delta_y * state->outrow + state->delta_x * 4;
+    unpack(state->pTemp, state->imagesize, state->pData, state->zsize, state->delta_height, state->rowbytes, state->bpp, &state->common);
     switch (state->coltype)
     {
-        case 0: compose0(state->pDst, state->outrow, state->pTemp, state->rowbytes+1, state->w0, state->h0, state->bop, state->depth, &state->common); break;
-        case 2: compose2(state->pDst, state->outrow, state->pTemp, state->rowbytes+1, state->w0, state->h0, state->bop, state->depth, &state->common); break;
-        case 3: compose3(state->pDst, state->outrow, state->pTemp, state->rowbytes+1, state->w0, state->h0, state->bop, state->depth, &state->common); break;
-        case 4: compose4(state->pDst, state->outrow, state->pTemp, state->rowbytes+1, state->w0, state->h0, state->bop, state->depth); break;
-        case 6: compose6(state->pDst, state->outrow, state->pTemp, state->rowbytes+1, state->w0, state->h0, state->bop, state->depth); break;
+        case 0: compose0(state->pDst, state->outrow, state->pTemp, state->rowbytes+1, state->delta_width, state->delta_height, state->bop, state->depth, &state->common); break;
+        case 2: compose2(state->pDst, state->outrow, state->pTemp, state->rowbytes+1, state->delta_width, state->delta_height, state->bop, state->depth, &state->common); break;
+        case 3: compose3(state->pDst, state->outrow, state->pTemp, state->rowbytes+1, state->delta_width, state->delta_height, state->bop, state->depth, &state->common); break;
+        case 4: compose4(state->pDst, state->outrow, state->pTemp, state->rowbytes+1, state->delta_width, state->delta_height, state->bop, state->depth); break;
+        case 6: compose6(state->pDst, state->outrow, state->pTemp, state->rowbytes+1, state->delta_width, state->delta_height, state->bop, state->depth); break;
     }
 }
 
@@ -567,16 +545,15 @@ static void make_out(libapngiter_state *state, libapngiter_frame *outFrame)
 {
     outFrame->framebuffer = (uint32_t*)state->pOut;
     outFrame->framei = state->num_idat - 1;
-    outFrame->width = state->w;
-    outFrame->height = state->h;
-    outFrame->delta_x = state->x0;
-    outFrame->delta_y = state->y0;
-    outFrame->delta_width = state->w0;
-    outFrame->delta_height = state->h0;
-    outFrame->delay_num = state->d1;
-    outFrame->delay_den = state->d2;
+    outFrame->width = state->width;
+    outFrame->height = state->height;
+    outFrame->delta_x = state->delta_x;
+    outFrame->delta_y = state->delta_y;
+    outFrame->delta_width = state->delta_width;
+    outFrame->delta_height = state->delta_height;
+    outFrame->delay_num = state->delay_num;
+    outFrame->delay_den = state->delay_den;
     
-    outFrame->bpp = 24;
     if ((state->coltype == 4) || (state->coltype == 6)) {
         outFrame->bpp = 32;
     } else if (state->coltype == 3) {
@@ -587,10 +564,13 @@ static void make_out(libapngiter_state *state, libapngiter_frame *outFrame)
         
         if (state->common.allWrittenPalettePixelsAreOpaque) {
             // 24 BPP with no alpha channel
+            outFrame->bpp = 24;
         } else {
             // 32 BPP with alpha channel
             outFrame->bpp = 32;
         }
+    } else {
+        outFrame->bpp = 24;
     }
     
     // Odd way of representing no-op frame. The apngasm program will encode a no-op frame
@@ -602,7 +582,8 @@ static void make_out(libapngiter_state *state, libapngiter_frame *outFrame)
         outFrame->delta_y == 0 &&
         outFrame->delta_width == 1 &&
         outFrame->delta_height == 1 &&
-        (outFrame->framebuffer[0] == state->common.lastOriginPixel)) {
+        (outFrame->framebuffer[0] == state->common.lastOriginPixel))
+    {
         outFrame->delta_width = 0;
         outFrame->delta_height = 0;
     } else {
@@ -633,6 +614,34 @@ libapngiter_state *libapngiter_open(char *apngPath, libapngiter_frame_func frame
     
     // FIXME: scan for APNG specific
     
+    if (0) {
+        //retcode = LIBAPNGITER_ERROR_CODE_INVALID_FILENAME;
+        return NULL;
+    }
+    
+    if (fread(sig, 1, 8, fp) != 8) {
+        // retcode = LIBAPNGITER_ERROR_CODE_INVALID_INPUT;
+        // printf("Error: can't read the sig\n");
+        return NULL;
+    }
+    
+    
+    if (memcmp(sig, png_sign, 8) != 0) {
+        // retcode = LIBAPNGITER_ERROR_CODE_INVALID_INPUT;
+        // printf("Error: wrong PNG sig\n");
+        return NULL;
+    }
+    
+    
+    len  = read32(fp);
+    chunk = read32(fp);
+    
+    if ((len != 13) || (chunk != PNG_CHUNK_IHDR)) { /* IHDR */
+        // retcode = LIBAPNGITER_ERROR_CODE_INVALID_INPUT;
+        // printf("IHDR missing\n");
+        return NULL;
+    }
+    
     libapngiter_state *state = malloc(sizeof(libapngiter_state));
     memset(state, 0, sizeof(libapngiter_state));
     state->f = fp;
@@ -640,12 +649,12 @@ libapngiter_state *libapngiter_open(char *apngPath, libapngiter_frame_func frame
     state->userData = userData;
 
     APNGCommonData *commonPtr = &state->common;
+    commonPtr->hasTRNS = 0;
+
     // Assume that all pixels written from the palette are opaque
     // until a non-opaque pixel has been written. A non-palette
     // image should not depend on this flag.
     commonPtr->allWrittenPalettePixelsAreOpaque = 1;
-    commonPtr->hasTRNS = 0;
-    
     for (int i=0; i<256; i++)
     {
         commonPtr->pal[i][0] = i;
@@ -658,50 +667,9 @@ libapngiter_state *libapngiter_open(char *apngPath, libapngiter_frame_func frame
     commonPtr->zstream.zfree = Z_NULL;
     commonPtr->zstream.opaque = Z_NULL;
     inflateInit(&commonPtr->zstream);
-    
-    state->frames = 1;
-    state->num_fctl = 0;
-    state->num_idat = 0;
-    state->zsize = 0;
-    state->x0 = 0;
-    state->y0 = 0;
-    state->bop = PNG_BLEND_OP_SOURCE;
-    
-    if (0) {
-        inflateEnd(&commonPtr->zstream);
-        //retcode = LIBAPNGITER_ERROR_CODE_INVALID_FILENAME;
-        return NULL;
-    }
-    
-    if (fread(sig, 1, 8, state->f) != 8) {
-        inflateEnd(&commonPtr->zstream);
-        // retcode = LIBAPNGITER_ERROR_CODE_INVALID_INPUT;
-        // printf("Error: can't read the sig\n");
-        return NULL;
-    }
-    
-    
-    if (memcmp(sig, png_sign, 8) != 0) {
-        inflateEnd(&commonPtr->zstream);
-        // retcode = LIBAPNGITER_ERROR_CODE_INVALID_INPUT;
-        // printf("Error: wrong PNG sig\n");
-        return NULL;
-    }
-    
-    
-    len  = read32(state->f);
-    chunk = read32(state->f);
-    
-    if ((len != 13) || (chunk != 0x49484452)) { /* IHDR */
-        inflateEnd(&commonPtr->zstream);
-        // retcode = LIBAPNGITER_ERROR_CODE_INVALID_INPUT;
-        // printf("IHDR missing\n");
-        return NULL;
-    }
-    
-    
-    state->w = state->w0 = read32(state->f);
-    state->h = state->h0 = read32(state->f);
+
+    state->width = read32(state->f);
+    state->height = read32(state->f);
     fread(&state->depth, 1, 1, state->f);
     fread(&state->coltype, 1, 1, state->f);
     fread(&state->compr, 1, 1, state->f);
@@ -709,6 +677,16 @@ libapngiter_state *libapngiter_open(char *apngPath, libapngiter_frame_func frame
     fread(&state->interl, 1, 1, state->f);
     crc = read32(state->f);
     
+    state->frames = 1;
+    state->num_fctl = 0;
+    state->num_idat = 0;
+    state->zsize = 0;
+    state->delta_width = state->width;
+    state->delta_height = state->height;
+    state->delta_x = 0;
+    state->delta_y = 0;
+    state->bop = PNG_BLEND_OP_SOURCE;
+
     // Color    Allowed    Interpretation
     // Type    Bit Depths
     //
@@ -732,13 +710,13 @@ libapngiter_state *libapngiter_open(char *apngPath, libapngiter_frame_func frame
     
     state->pixeldepth = state->depth * channels;
     state->bpp = (state->pixeldepth + 7) >> 3;
-    state->rowbytes = ROWBYTES(state->pixeldepth, state->w);
+    state->rowbytes = ROWBYTES(state->pixeldepth, state->width);
     
-    state->imagesize = (state->rowbytes + 1) * state->h;
+    state->imagesize = (state->rowbytes + 1) * state->height;
     state->zbuf_size = state->imagesize + ((state->imagesize + 7) >> 3) + ((state->imagesize + 63) >> 6) + 11;
     
-    state->outrow = state->w * 4;
-    state->outimg = state->h * state->outrow;
+    state->outrow = state->width * 4;
+    state->outimg = state->height * state->outrow;
     
     state->pOut =(unsigned char *)malloc(state->outimg);
     state->pRest=(unsigned char *)malloc(state->outimg);
@@ -795,7 +773,7 @@ libapngiter_next_frame(libapngiter_state *state, libapngiter_frame *outFrame)
     len  = read32(apngFile);
     chunk = read32(apngFile);
     
-    if (chunk == 0x504C5445) /* PLTE */
+    if (chunk == PNG_CHUNK_PLTE)
     {
         unsigned int col;
         for (i=0; i<len; i++)
@@ -809,7 +787,7 @@ libapngiter_next_frame(libapngiter_state *state, libapngiter_frame *outFrame)
             }
         }
     }
-    else if (chunk == 0x74524E53) /* tRNS */
+    else if (chunk == PNG_CHUNK_tRNS)
     {
         state->common.hasTRNS = 1;
         for (i=0; i<len; i++)
@@ -829,12 +807,12 @@ libapngiter_next_frame(libapngiter_state *state, libapngiter_frame *outFrame)
             commonPtr->trns3 = readshort(&commonPtr->trns[4]);
         }
     }
-    else if (chunk == 0x6163544C) /* acTL */
+    else if (chunk == PNG_CHUNK_acTL)
     {
         state->frames = read32(apngFile);
         state->loops  = read32(apngFile);
     }
-    else if (chunk == 0x6663544C) /* fcTL */
+    else if (chunk == PNG_CHUNK_fcTL)
     {
         if ((state->num_fctl == state->num_idat) && (state->num_idat > 0))
         {
@@ -848,23 +826,23 @@ libapngiter_next_frame(libapngiter_state *state, libapngiter_frame *outFrame)
             if (state->dop == PNG_DISPOSE_OP_PREVIOUS) {
                 memcpy(state->pOut, state->pRest, state->outimg);
             } else if (state->dop == PNG_DISPOSE_OP_BACKGROUND) {
-                state->pDst = state->pOut + state->y0 * state->outrow + state->x0 * 4;
+                state->pDst = state->pOut + state->delta_y * state->outrow + state->delta_x * 4;
                 
-                for (j=0; j<state->h0; j++)
+                for (j = 0; j < state->delta_height; j++)
                 {
-                    memset(state->pDst, 0, state->w0*4);
+                    memset(state->pDst, 0, state->delta_width * 4);
                     state->pDst += state->outrow;
                 }
             }
         }
         
         state->seq = read32(apngFile);
-        state->w0  = read32(apngFile);
-        state->h0  = read32(apngFile);
-        state->x0  = read32(apngFile);
-        state->y0  = read32(apngFile);
-        state->d1  = read16(apngFile);
-        state->d2  = read16(apngFile);
+        state->delta_width = read32(apngFile);
+        state->delta_height = read32(apngFile);
+        state->delta_x = read32(apngFile);
+        state->delta_y = read32(apngFile);
+        state->delay_num = read16(apngFile);
+        state->delay_den = read16(apngFile);
         fread(&state->dop, 1, 1, apngFile);
         fread(&state->bop, 1, 1, apngFile);
         
@@ -879,10 +857,10 @@ libapngiter_next_frame(libapngiter_state *state, libapngiter_frame *outFrame)
             state->bop = PNG_BLEND_OP_SOURCE;
         }
         
-        state->rowbytes = ROWBYTES(state->pixeldepth, state->w0);
+        state->rowbytes = ROWBYTES(state->pixeldepth, state->delta_width);
         state->num_fctl++;
     }
-    else if (chunk == 0x49444154) /* IDAT */
+    else if (chunk == PNG_CHUNK_IDAT)
     {
         if (state->num_fctl > state->num_idat)
         {
@@ -892,7 +870,7 @@ libapngiter_next_frame(libapngiter_state *state, libapngiter_frame *outFrame)
         fread(state->pData + state->zsize, 1, len, apngFile);
         state->zsize += len;
     }
-    else if (chunk == 0x66644154) /* fdAT */
+    else if (chunk == PNG_CHUNK_fdAT)
     {
         state->seq = read32(apngFile);
         len -= 4;
@@ -904,7 +882,7 @@ libapngiter_next_frame(libapngiter_state *state, libapngiter_frame *outFrame)
         fread(state->pData + state->zsize, 1, len, apngFile);
         state->zsize += len;
     }
-    else if (chunk == 0x49454E44) /* IEND */
+    else if (chunk == PNG_CHUNK_IEND)
     {
         compose(state);        
         make_out(state, outFrame);
