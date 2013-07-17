@@ -32,12 +32,14 @@
 
 #define PNG_CHUNK_IHDR 0x49484452
 #define PNG_CHUNK_PLTE 0x504C5445
+#define PNG_CHUNK_IDAT 0x49444154
+#define PNG_CHUNK_IEND 0x49454E44
+
 #define PNG_CHUNK_tRNS 0x74524E53
+
 #define PNG_CHUNK_acTL 0x6163544C
 #define PNG_CHUNK_fcTL 0x6663544C
-#define PNG_CHUNK_IDAT 0x49444154
 #define PNG_CHUNK_fdAT 0x66644154
-#define PNG_CHUNK_IEND 0x49454E44
 
 #define PNG_DISPOSE_OP_NONE        0x00
 #define PNG_DISPOSE_OP_BACKGROUND  0x01
@@ -46,23 +48,16 @@
 #define PNG_BLEND_OP_SOURCE        0x00
 #define PNG_BLEND_OP_OVER          0x01
 
-#define notabc(c) ((c) < 65 || (c) > 122 || ((c) > 90 && (c) < 97))
-
-#define ROWBYTES(pixel_bits, width) \
-((pixel_bits) >= 8 ? \
-((width) * (((uint32_t)(pixel_bits)) >> 3)) : \
-(( ((width) * ((uint32_t)(pixel_bits))) + 7) >> 3) )
-
 static const uint8_t png_sign[8] = {137, 80, 78, 71, 13, 10, 26, 10};
 
-static const int mask4[2]={240,15};
-static const int shift4[2]={4,0};
+static const int mask4[2] = {240, 15};
+static const int shift4[2] = {4, 0};
 
-static const int mask2[4]={192,48,12,3};
-static const int shift2[4]={6,4,2,0};
+static const int mask2[4] = {192, 48, 12, 3};
+static const int shift2[4] = {6, 4, 2, 0};
 
-static const int mask1[8]={128,64,32,16,8,4,2,1};
-static const int shift1[8]={7,6,5,4,3,2,1,0};
+static const int mask1[8] = {128, 64, 32, 16, 8, 4, 2, 1};
+static const int shift1[8] = {7, 6, 5, 4, 3, 2, 1, 0};
 
 typedef struct
 {
@@ -97,9 +92,9 @@ struct libapngiter_state {
     uint16_t delay_den;
     
     uint32_t frames, loops, num_fctl, num_idat;
-    uint8_t   dop, bop;
-    uint8_t   depth, pixeldepth, bpp;
-    uint8_t   coltype, compr, filter, interl;
+    uint8_t  dop, bop;
+    uint8_t  depth, pixeldepth, bpp;
+    uint8_t  coltype, compr, filter, interl;
     uint32_t    outrow, outimg;
     uint8_t * pOut;
     uint8_t * pRest;
@@ -109,6 +104,16 @@ struct libapngiter_state {
 
     APNGCommonData common;
 };
+
+static inline int notabc(uint8_t c)
+{
+    return (c < 65 || c > 122 || (c > 90 && c < 97));
+}
+
+static inline uint32_t rowbytes(int pixel_bits, int width)
+{
+    return pixel_bits >= 8 ? width * (pixel_bits >> 3) : width * ((pixel_bits + 7) >> 3);
+}
 
 static inline uint32_t read32(FILE * f1)
 {
@@ -706,7 +711,7 @@ libapngiter_state *libapngiter_open(char *apngPath, libapngiter_frame_func frame
     
     state->pixeldepth = state->depth * channels;
     state->bpp = (state->pixeldepth + 7) >> 3;
-    state->rowbytes = ROWBYTES(state->pixeldepth, state->width);
+    state->rowbytes = rowbytes(state->pixeldepth, state->width);
     
     state->imagesize = (state->rowbytes + 1) * state->height;
     
@@ -723,6 +728,11 @@ libapngiter_state *libapngiter_open(char *apngPath, libapngiter_frame_func frame
     /* apng decoding - begin */
     memset(state->pOut, 0, state->outimg);
     
+    if (state->interl != 0 || state->filter != 0) {
+        libapngiter_close(state);
+        // retcode = LIBAPNGITER_ERROR_CODE_NOT_SUPPORTED
+        return NULL;
+    }
     return state;
 }
 
@@ -851,7 +861,7 @@ uint32_t libapngiter_next_frame(libapngiter_state *state, libapngiter_frame *out
             state->bop = PNG_BLEND_OP_SOURCE;
         }
         
-        state->rowbytes = ROWBYTES(state->pixeldepth, state->delta_width);
+        state->rowbytes = rowbytes(state->pixeldepth, state->delta_width);
         state->num_fctl++;
     }
     else if (chunk == PNG_CHUNK_IDAT)
@@ -893,7 +903,7 @@ uint32_t libapngiter_next_frame(libapngiter_state *state, libapngiter_frame *out
         c = (uint8_t)(chunk & 0xFF);
         if (notabc(c)) return LIBAPNGITER_ERROR_CODE_STREAM_ERROR;
         
-        fseek( apngFile, len, SEEK_CUR );
+        fseek(apngFile, len, SEEK_CUR);
     }
     
     crc = read32(apngFile);
