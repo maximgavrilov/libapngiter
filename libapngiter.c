@@ -50,10 +50,10 @@
 
 #define ROWBYTES(pixel_bits, width) \
 ((pixel_bits) >= 8 ? \
-((width) * (((unsigned int)(pixel_bits)) >> 3)) : \
-(( ((width) * ((unsigned int)(pixel_bits))) + 7) >> 3) )
+((width) * (((uint32_t)(pixel_bits)) >> 3)) : \
+(( ((width) * ((uint32_t)(pixel_bits))) + 7) >> 3) )
 
-static const unsigned char png_sign[8] = {137, 80, 78, 71, 13, 10, 26, 10};
+static const uint8_t png_sign[8] = {137, 80, 78, 71, 13, 10, 26, 10};
 
 static const int mask4[2]={240,15};
 static const int shift4[2]={4,0};
@@ -66,14 +66,14 @@ static const int shift1[8]={7,6,5,4,3,2,1,0};
 
 typedef struct
 {
-    unsigned char   pal[256][3];
-    unsigned char   trns[256];
-    unsigned int    palsize, trnssize;
-    unsigned int    hasTRNS;
-    unsigned int    allWrittenPalettePixelsAreOpaque;
-    unsigned short  trns1, trns2, trns3;
+    uint8_t   pal[256][3];
+    uint8_t   trns[256];
+    uint32_t    palsize, trnssize;
+    uint32_t    hasTRNS;
+    uint32_t    allWrittenPalettePixelsAreOpaque;
+    uint16_t  trns1, trns2, trns3;
     z_stream        zstream;
-    unsigned int    lastOriginPixel;
+    uint32_t    lastOriginPixel;
 } APNGCommonData;
 
 struct libapngiter_state {
@@ -84,75 +84,71 @@ struct libapngiter_state {
     int imagesize;
     int zsize;
     
-    unsigned int rowbytes;
-    unsigned int width;
-    unsigned int height;
+    uint32_t rowbytes;
+    uint32_t width;
+    uint32_t height;
     
-    unsigned int seq;
-    unsigned int delta_width;
-    unsigned int delta_height;
-    unsigned int delta_x;
-    unsigned int delta_y;
-    unsigned short delay_num;
-    unsigned short delay_den;
+    uint32_t seq;
+    uint32_t delta_width;
+    uint32_t delta_height;
+    uint32_t delta_x;
+    uint32_t delta_y;
+    uint16_t delay_num;
+    uint16_t delay_den;
     
-    unsigned int frames, loops, num_fctl, num_idat;
-    unsigned char   dop, bop;
-    unsigned char   depth, pixeldepth, bpp;
-    unsigned char   coltype, compr, filter, interl;
-    unsigned int    outrow, outimg;
-    unsigned char * pOut;
-    unsigned char * pRest;
-    unsigned char * pTemp;
-    unsigned char * pZBuffer;
-    unsigned char * pDst;
+    uint32_t frames, loops, num_fctl, num_idat;
+    uint8_t   dop, bop;
+    uint8_t   depth, pixeldepth, bpp;
+    uint8_t   coltype, compr, filter, interl;
+    uint32_t    outrow, outimg;
+    uint8_t * pOut;
+    uint8_t * pRest;
+    uint8_t * pTemp;
+    uint8_t * pZBuffer;
+    uint8_t * pDst;
 
     APNGCommonData common;
 };
 
-static inline unsigned int read32(FILE * f1)
+static inline uint32_t read32(FILE * f1)
 {
-    unsigned char a, b, c, d;
-    fread(&a, 1, 1, f1);
-    fread(&b, 1, 1, f1);
-    fread(&c, 1, 1, f1);
-    fread(&d, 1, 1, f1);
-    return ((unsigned int)a<<24)+((unsigned int)b<<16)+((unsigned int)c<<8)+(unsigned int)d;
+    uint8_t a[4];
+    fread(a, 1, 4, f1);
+    return ((uint32_t)a[0]<<24)+((uint32_t)a[1]<<16)+((uint32_t)a[2]<<8)+(uint32_t)a[3];
 }
 
-static inline unsigned short read16(FILE * f1)
+static inline uint16_t read16(FILE * f1)
 {
-    unsigned char a, b;
-    fread(&a, 1, 1, f1);
-    fread(&b, 1, 1, f1);
-    return ((unsigned short)a<<8)+(unsigned short)b;
+    uint8_t a[2];
+    fread(&a, 1, 2, f1);
+    return ((uint16_t)a[0]<<8)+(uint16_t)a[1];
 }
 
-static inline unsigned short readshort(unsigned char * p)
+static inline uint16_t readshort(uint8_t *p)
 {
-    return ((unsigned short)(*p)<<8)+(unsigned short)(*(p+1));
+    return ((uint16_t)(*p)<<8)+(uint16_t)(*(p+1));
 }
 
-static inline void read_sub_row(unsigned char * row, unsigned int rowbytes, unsigned int bpp)
+static inline void read_sub_row(uint8_t * row, uint32_t rowbytes, uint32_t bpp)
 {
-    unsigned int i;
+    uint32_t i;
     
     for (i=bpp; i<rowbytes; i++)
         row[i] += row[i-bpp];
 }
 
-static inline void read_up_row(unsigned char * row, unsigned char * prev_row, unsigned int rowbytes, unsigned int bpp)
+static inline void read_up_row(uint8_t * row, uint8_t * prev_row, uint32_t rowbytes, uint32_t bpp)
 {
-    unsigned int i;
+    uint32_t i;
     
     if (prev_row)
         for (i=0; i<rowbytes; i++)
             row[i] += prev_row[i];
 }
 
-static inline void read_average_row(unsigned char * row, unsigned char * prev_row, unsigned int rowbytes, unsigned int bpp)
+static inline void read_average_row(uint8_t * row, uint8_t * prev_row, uint32_t rowbytes, uint32_t bpp)
 {
-    unsigned int i;
+    uint32_t i;
     
     if (prev_row)
     {
@@ -168,9 +164,9 @@ static inline void read_average_row(unsigned char * row, unsigned char * prev_ro
     }
 }
 
-static inline void read_paeth_row(unsigned char * row, unsigned char * prev_row, unsigned int rowbytes, unsigned int bpp)
+static inline void read_paeth_row(uint8_t * row, uint8_t * prev_row, uint32_t rowbytes, uint32_t bpp)
 {
-    unsigned int i;
+    uint32_t i;
     int a, b, c, pa, pb, pc, p;
     
     if (prev_row)
@@ -197,11 +193,11 @@ static inline void read_paeth_row(unsigned char * row, unsigned char * prev_row,
     }
 }
 
-static inline void unpack(unsigned char * dst, unsigned int dst_size, unsigned char * src, unsigned int src_size, unsigned int h, unsigned int rowbytes, unsigned char bpp, APNGCommonData *commonPtr)
+static inline void unpack(uint8_t * dst, uint32_t dst_size, uint8_t * src, uint32_t src_size, uint32_t h, uint32_t rowbytes, uint8_t bpp, APNGCommonData *commonPtr)
 {
-    unsigned int    j;
-    unsigned char * row = dst;
-    unsigned char * prev_row = NULL;
+    uint32_t    j;
+    uint8_t * row = dst;
+    uint8_t * prev_row = NULL;
     
     z_stream zstream = commonPtr->zstream;
     zstream.next_out  = dst;
@@ -226,18 +222,18 @@ static inline void unpack(unsigned char * dst, unsigned int dst_size, unsigned c
     }
 }
 
-static void compose0(unsigned char * dst, unsigned int dstbytes, unsigned char * src, unsigned int srcbytes, unsigned int w, unsigned int h, unsigned int bop, unsigned char depth, APNGCommonData *commonPtr)
+static void compose0(uint8_t * dst, uint32_t dstbytes, uint8_t * src, uint32_t srcbytes, uint32_t w, uint32_t h, uint32_t bop, uint8_t depth, APNGCommonData *commonPtr)
 {
-    unsigned int    i, j, g, a;
-    unsigned char * sp;
-    unsigned int  * dp;
+    uint32_t    i, j, g, a;
+    uint8_t * sp;
+    uint32_t  * dp;
     uint32_t hasTRNS = commonPtr->hasTRNS;
-    unsigned short  trns1 = commonPtr->trns1;
+    uint16_t  trns1 = commonPtr->trns1;
     
     for (j=0; j<h; j++)
     {
         sp = src+1;
-        dp = (unsigned int*)dst;
+        dp = (uint32_t*)dst;
         
         if (bop == PNG_BLEND_OP_SOURCE)
         {
@@ -267,21 +263,21 @@ static void compose0(unsigned char * dst, unsigned int dstbytes, unsigned char *
     }
 }
 
-static void compose2(unsigned char * dst, unsigned int dstbytes, unsigned char * src, unsigned int srcbytes, unsigned int w, unsigned int h, unsigned int bop, unsigned char depth, APNGCommonData *commonPtr)
+static void compose2(uint8_t * dst, uint32_t dstbytes, uint8_t * src, uint32_t srcbytes, uint32_t w, uint32_t h, uint32_t bop, uint8_t depth, APNGCommonData *commonPtr)
 {
-    unsigned int    i, j;
-    unsigned int    r, g, b, a;
-    unsigned char * sp;
-    unsigned int  * dp;
+    uint32_t    i, j;
+    uint32_t    r, g, b, a;
+    uint8_t * sp;
+    uint32_t  * dp;
     uint32_t hasTRNS = commonPtr->hasTRNS;
-    unsigned short  trns1 = commonPtr->trns1;
-    unsigned short  trns2 = commonPtr->trns2;
-    unsigned short  trns3 = commonPtr->trns3;
+    uint16_t  trns1 = commonPtr->trns1;
+    uint16_t  trns2 = commonPtr->trns2;
+    uint16_t  trns3 = commonPtr->trns3;
     
     for (j=0; j<h; j++)
     {
         sp = src+1;
-        dp = (unsigned int*)dst;
+        dp = (uint32_t*)dst;
         
         if (bop == PNG_BLEND_OP_SOURCE)
         {
@@ -332,22 +328,22 @@ static void compose2(unsigned char * dst, unsigned int dstbytes, unsigned char *
     }
 }
 
-static void compose3(unsigned char * dst, unsigned int dstbytes, unsigned char * src, unsigned int srcbytes, unsigned int w, unsigned int h, unsigned int bop, unsigned char depth, APNGCommonData *commonPtr)
+static void compose3(uint8_t * dst, uint32_t dstbytes, uint8_t * src, uint32_t srcbytes, uint32_t w, uint32_t h, uint32_t bop, uint8_t depth, APNGCommonData *commonPtr)
 {
-    unsigned int    i, j;
-    unsigned int    r, g, b, a;
-    unsigned int    r2, g2, b2, a2;
+    uint32_t    i, j;
+    uint32_t    r, g, b, a;
+    uint32_t    r2, g2, b2, a2;
     int             u, v, al;
-    unsigned char   col;
-    unsigned char * sp;
-    unsigned int  * dp;
+    uint8_t   col;
+    uint8_t * sp;
+    uint32_t  * dp;
     
-    unsigned int  allWrittenPalettePixelsAreOpaque = commonPtr->allWrittenPalettePixelsAreOpaque;
+    uint32_t  allWrittenPalettePixelsAreOpaque = commonPtr->allWrittenPalettePixelsAreOpaque;
     
     for (j=0; j<h; j++)
     {
         sp = src+1;
-        dp = (unsigned int*)dst;
+        dp = (uint32_t*)dst;
         
         for (i=0; i<w; i++)
         {
@@ -408,20 +404,20 @@ static void compose3(unsigned char * dst, unsigned int dstbytes, unsigned char *
     commonPtr->allWrittenPalettePixelsAreOpaque = allWrittenPalettePixelsAreOpaque;
 }
 
-static void compose4(unsigned char * dst, unsigned int dstbytes, unsigned char * src, unsigned int srcbytes, unsigned int w, unsigned int h, unsigned int bop, unsigned char depth)
+static void compose4(uint8_t * dst, uint32_t dstbytes, uint8_t * src, uint32_t srcbytes, uint32_t w, uint32_t h, uint32_t bop, uint8_t depth)
 {
-    unsigned int    i, j, step;
-    unsigned int    g, a, g2, a2;
+    uint32_t    i, j, step;
+    uint32_t    g, a, g2, a2;
     int             u, v, al;
-    unsigned char * sp;
-    unsigned int  * dp;
+    uint8_t * sp;
+    uint32_t  * dp;
     
     step = (depth+7)/8;
     
     for (j=0; j<h; j++)
     {
         sp = src+1;
-        dp = (unsigned int*)dst;
+        dp = (uint32_t*)dst;
         
         if (bop == PNG_BLEND_OP_SOURCE)
         {
@@ -463,21 +459,21 @@ static void compose4(unsigned char * dst, unsigned int dstbytes, unsigned char *
     }
 }
 
-static void compose6(unsigned char * dst, unsigned int dstbytes, unsigned char * src, unsigned int srcbytes, unsigned int w, unsigned int h, unsigned int bop, unsigned char depth)
+static void compose6(uint8_t * dst, uint32_t dstbytes, uint8_t * src, uint32_t srcbytes, uint32_t w, uint32_t h, uint32_t bop, uint8_t depth)
 {
-    unsigned int    i, j, step;
-    unsigned int    r, g, b, a;
-    unsigned int    r2, g2, b2, a2;
+    uint32_t    i, j, step;
+    uint32_t    r, g, b, a;
+    uint32_t    r2, g2, b2, a2;
     int             u, v, al;
-    unsigned char * sp;
-    unsigned int  * dp;
+    uint8_t * sp;
+    uint32_t  * dp;
     
     step = (depth+7)/8;
     
     for (j=0; j<h; j++)
     {
         sp = src+1;
-        dp = (unsigned int*)dst;
+        dp = (uint32_t*)dst;
         
         if (bop == PNG_BLEND_OP_SOURCE)
         {
@@ -603,9 +599,9 @@ static void make_out(libapngiter_state *state, libapngiter_frame *outFrame)
 libapngiter_state *libapngiter_open(char *apngPath, libapngiter_frame_func frame_func, void *userData)
 {
     FILE *fp;
-    unsigned char sig[8];
-    unsigned int len, chunk, crc;
-    unsigned char channels;
+    uint8_t sig[8];
+    uint32_t len, chunk, crc;
+    uint8_t channels;
 
     fp = fopen(apngPath, "rb");
     if (fp == NULL) {
@@ -719,10 +715,10 @@ libapngiter_state *libapngiter_open(char *apngPath, libapngiter_frame_func frame
     
     int zbuf_size = state->imagesize + ((state->imagesize + 7) >> 3) + ((state->imagesize + 63) >> 6) + 11;
     
-    state->pOut =(unsigned char *)malloc(state->outimg);
-    state->pRest=(unsigned char *)malloc(state->outimg);
-    state->pTemp=(unsigned char *)malloc(state->imagesize);
-    state->pZBuffer=(unsigned char *)malloc(zbuf_size);
+    state->pOut =(uint8_t *)malloc(state->outimg);
+    state->pRest=(uint8_t *)malloc(state->outimg);
+    state->pTemp=(uint8_t *)malloc(state->imagesize);
+    state->pZBuffer=(uint8_t *)malloc(zbuf_size);
     
     /* apng decoding - begin */
     memset(state->pOut, 0, state->outimg);
@@ -754,13 +750,12 @@ void libapngiter_close(libapngiter_state *state)
     free(state);
 }
 
-// This methods opens an APNG file
 
 uint32_t libapngiter_next_frame(libapngiter_state *state, libapngiter_frame *outFrame)
 {
-    unsigned int    i, j;
-    unsigned int    len, chunk, crc;
-    unsigned char   c;
+    uint32_t    i, j;
+    uint32_t    len, chunk, crc;
+    uint8_t   c;
     APNGCommonData *commonPtr = &state->common;
     FILE *apngFile = state->f;
     
@@ -774,7 +769,7 @@ uint32_t libapngiter_next_frame(libapngiter_state *state, libapngiter_frame *out
     
     if (chunk == PNG_CHUNK_PLTE)
     {
-        unsigned int col;
+        uint32_t col;
         for (i=0; i<len; i++)
         {
             fread(&c, 1, 1, apngFile);
@@ -889,13 +884,13 @@ uint32_t libapngiter_next_frame(libapngiter_state *state, libapngiter_frame *out
     }
     else
     {
-        c = (unsigned char)(chunk>>24);
+        c = (uint8_t)(chunk>>24);
         if (notabc(c)) return LIBAPNGITER_ERROR_CODE_STREAM_ERROR;
-        c = (unsigned char)((chunk>>16) & 0xFF);
+        c = (uint8_t)((chunk>>16) & 0xFF);
         if (notabc(c)) return LIBAPNGITER_ERROR_CODE_STREAM_ERROR;
-        c = (unsigned char)((chunk>>8) & 0xFF);
+        c = (uint8_t)((chunk>>8) & 0xFF);
         if (notabc(c)) return LIBAPNGITER_ERROR_CODE_STREAM_ERROR;
-        c = (unsigned char)(chunk & 0xFF);
+        c = (uint8_t)(chunk & 0xFF);
         if (notabc(c)) return LIBAPNGITER_ERROR_CODE_STREAM_ERROR;
         
         fseek( apngFile, len, SEEK_CUR );
