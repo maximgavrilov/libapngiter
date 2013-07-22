@@ -91,7 +91,10 @@ struct libapngiter_state {
     uint16_t delay_num;
     uint16_t delay_den;
     
-    uint32_t frames, loops, num_fctl, num_idat;
+    uint32_t num_frames;
+    uint32_t num_plays;
+    
+    uint32_t num_fctl, num_idat;
     uint8_t  dop, bop;
     uint8_t  depth, pixeldepth, bpp;
     uint8_t  coltype, compr, filter, interl;
@@ -678,7 +681,9 @@ libapngiter_state *libapngiter_open(char *apngPath, libapngiter_frame_func frame
     fread(&state->interl, 1, 1, state->f);
     crc = read32(state->f);
     
-    state->frames = 1;
+    state->num_frames = 1;
+    state->num_plays = 0;
+    
     state->num_fctl = 0;
     state->num_idat = 0;
     state->zsize = 0;
@@ -813,8 +818,8 @@ uint32_t libapngiter_next_frame(libapngiter_state *state, libapngiter_frame *out
     }
     else if (chunk == PNG_CHUNK_acTL)
     {
-        state->frames = read32(apngFile);
-        state->loops  = read32(apngFile);
+        state->num_frames = read32(apngFile);
+        state->num_plays  = read32(apngFile);
     }
     else if (chunk == PNG_CHUNK_fcTL)
     {
