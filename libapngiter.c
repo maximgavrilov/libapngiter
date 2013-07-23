@@ -73,8 +73,6 @@ typedef struct
 
 struct libapngiter_state {
     FILE *f;
-    libapngiter_frame_func frame_func;
-    void *userData;
     
     int imagesize;
     int zsize;
@@ -545,21 +543,22 @@ static void compose(libapngiter_state *state)
     }
 }
 
-static void make_out(libapngiter_state *state, libapngiter_frame *outFrame)
+static void make_out(libapngiter_state *state, libapngiter_frame_func frame_func, void *user_data)
 {
-    outFrame->framebuffer = (uint32_t*)state->pOut;
-    outFrame->framei = state->num_idat - 1;
-    outFrame->width = state->width;
-    outFrame->height = state->height;
-    outFrame->delta_x = state->delta_x;
-    outFrame->delta_y = state->delta_y;
-    outFrame->delta_width = state->delta_width;
-    outFrame->delta_height = state->delta_height;
-    outFrame->delay_num = state->delay_num;
-    outFrame->delay_den = state->delay_den;
+    libapngiter_frame frame;
+    frame.framebuffer = (uint32_t*)state->pOut;
+    frame.framei = state->num_idat - 1;
+    frame.width = state->width;
+    frame.height = state->height;
+    frame.delta_x = state->delta_x;
+    frame.delta_y = state->delta_y;
+    frame.delta_width = state->delta_width;
+    frame.delta_height = state->delta_height;
+    frame.delay_num = state->delay_num;
+    frame.delay_den = state->delay_den;
     
     if ((state->coltype == 4) || (state->coltype == 6)) {
-        outFrame->bpp = 32;
+        frame.bpp = 32;
     } else if (state->coltype == 3) {
         // In palette mode, don't know if pixels written to the framebuffer are actually opaque
         // or partially transparent until after the composition operation is done. The result is
@@ -568,13 +567,13 @@ static void make_out(libapngiter_state *state, libapngiter_frame *outFrame)
         
         if (state->common.allWrittenPalettePixelsAreOpaque) {
             // 24 BPP with no alpha channel
-            outFrame->bpp = 24;
+            frame.bpp = 24;
         } else {
             // 32 BPP with alpha channel
-            outFrame->bpp = 32;
+            frame.bpp = 32;
         }
     } else {
-        outFrame->bpp = 24;
+        frame.bpp = 24;
     }
     
     // Odd way of representing no-op frame. The apngasm program will encode a no-op frame
@@ -582,21 +581,171 @@ static void make_out(libapngiter_state *state, libapngiter_frame *outFrame)
     // previous frame, but work around the issue here. Report a frame that is 0x0 at 0,0 to
     // make it easier to detect a no-op frame in the callback.
     
-    if (outFrame->delta_x == 0 &&
-        outFrame->delta_y == 0 &&
-        outFrame->delta_width == 1 &&
-        outFrame->delta_height == 1 &&
-        (outFrame->framebuffer[0] == state->common.lastOriginPixel))
+    if (frame.delta_x == 0 &&
+        frame.delta_y == 0 &&
+        frame.delta_width == 1 &&
+        frame.delta_height == 1 &&
+        (frame.framebuffer[0] == state->common.lastOriginPixel))
     {
-        outFrame->delta_width = 0;
-        outFrame->delta_height = 0;
+        frame.delta_width = 0;
+        frame.delta_height = 0;
     } else {
-        state->common.lastOriginPixel = outFrame->framebuffer[0];
+        state->common.lastOriginPixel = frame.framebuffer[0];
     }
     
-    state->frame_func(outFrame, state->userData);
+    frame_func(&frame, user_data);
 //    uint32_t result = frame_func(framebuffer, framei, width, height, delta_x, delta_y, delta_width, delta_height, delay_num, delay_den, bpp, userData);
 //    assert(result == 0);
+}
+
+static int iter_next_chunk(libapngiter_state *state, libapngiter_frame_func frame_func, void *user_data)
+{
+    uint32_t    i, j;
+    uint32_t    len, chunk, crc;
+    uint8_t   c;
+    APNGCommonData *commonPtr = &state->common;
+    FILE *apngFile = state->f;
+    
+    
+    if (feof(apngFile)) {
+        return LIBAPNGITER_ERROR_CODE_FILE_END;
+    }
+    
+    len  = read32(apngFile);
+    chunk = read32(apngFile);
+    
+    if (chunk == PNG_CHUNK_PLTE)
+    {
+        uint32_t col;
+        for (i=0; i<len; i++)
+        {
+            fread(&c, 1, 1, apngFile);
+            col = i/3;
+            if (col<256)
+            {
+                commonPtr->pal[col][i%3] = c;
+                commonPtr->palsize = col+1;
+            }
+        }
+    }
+    else if (chunk == PNG_CHUNK_tRNS)
+    {
+        state->common.hasTRNS = 1;
+        for (i=0; i<len; i++)
+        {
+            fread(&c, 1, 1, apngFile);
+            if (i<256)
+            {
+                commonPtr->trns[i] = c;
+                commonPtr->trnssize = i+1;
+            }
+        }
+        if (state->coltype == 0) {
+            commonPtr->trns1 = readshort(&commonPtr->trns[0]);
+        } else if (state->coltype == 2) {
+            commonPtr->trns1 = readshort(&commonPtr->trns[0]);
+            commonPtr->trns2 = readshort(&commonPtr->trns[2]);
+            commonPtr->trns3 = readshort(&commonPtr->trns[4]);
+        }
+    }
+    else if (chunk == PNG_CHUNK_acTL)
+    {
+        state->num_frames = read32(apngFile);
+        state->num_plays  = read32(apngFile);
+    }
+    else if (chunk == PNG_CHUNK_fcTL)
+    {
+        if ((state->num_fctl == state->num_idat) && (state->num_idat > 0))
+        {
+            if (state->dop == PNG_DISPOSE_OP_PREVIOUS) {
+                memcpy(state->pRest, state->pOut, state->outimg);
+            }
+            
+            compose(state);
+            make_out(state, frame_func, user_data);
+            
+            if (state->dop == PNG_DISPOSE_OP_PREVIOUS) {
+                memcpy(state->pOut, state->pRest, state->outimg);
+            } else if (state->dop == PNG_DISPOSE_OP_BACKGROUND) {
+                state->pDst = state->pOut + state->delta_y * state->outrow + state->delta_x * 4;
+                
+                for (j = 0; j < state->delta_height; j++)
+                {
+                    memset(state->pDst, 0, state->delta_width * 4);
+                    state->pDst += state->outrow;
+                }
+            }
+        }
+        
+        state->seq = read32(apngFile);
+        state->delta_width = read32(apngFile);
+        state->delta_height = read32(apngFile);
+        state->delta_x = read32(apngFile);
+        state->delta_y = read32(apngFile);
+        state->delay_num = read16(apngFile);
+        state->delay_den = read16(apngFile);
+        fread(&state->dop, 1, 1, apngFile);
+        fread(&state->bop, 1, 1, apngFile);
+        
+        if (state->num_fctl == 0)
+        {
+            state->bop = PNG_BLEND_OP_SOURCE;
+            if (state->dop == PNG_DISPOSE_OP_PREVIOUS)
+                state->dop = PNG_DISPOSE_OP_BACKGROUND;
+        }
+        
+        if (!(state->coltype & 4) && !(commonPtr->hasTRNS)) {
+            state->bop = PNG_BLEND_OP_SOURCE;
+        }
+        
+        state->rowbytes = rowbytes(state->pixeldepth, state->delta_width);
+        state->num_fctl++;
+    }
+    else if (chunk == PNG_CHUNK_IDAT)
+    {
+        if (state->num_fctl > state->num_idat)
+        {
+            state->zsize = 0;
+            state->num_idat++;
+        }
+        fread(state->pZBuffer + state->zsize, 1, len, apngFile);
+        state->zsize += len;
+    }
+    else if (chunk == PNG_CHUNK_fdAT)
+    {
+        state->seq = read32(apngFile);
+        len -= 4;
+        if (state->num_fctl > state->num_idat)
+        {
+            state->zsize = 0;
+            state->num_idat++;
+        }
+        fread(state->pZBuffer + state->zsize, 1, len, apngFile);
+        state->zsize += len;
+    }
+    else if (chunk == PNG_CHUNK_IEND)
+    {
+        compose(state);
+        make_out(state, frame_func, user_data);
+        return LIBAPNGITER_ERROR_CODE_STREAM_COMPLETE;
+    }
+    else
+    {
+        c = (uint8_t)(chunk>>24);
+        if (notabc(c)) return LIBAPNGITER_ERROR_CODE_STREAM_ERROR;
+        c = (uint8_t)((chunk>>16) & 0xFF);
+        if (notabc(c)) return LIBAPNGITER_ERROR_CODE_STREAM_ERROR;
+        c = (uint8_t)((chunk>>8) & 0xFF);
+        if (notabc(c)) return LIBAPNGITER_ERROR_CODE_STREAM_ERROR;
+        c = (uint8_t)(chunk & 0xFF);
+        if (notabc(c)) return LIBAPNGITER_ERROR_CODE_STREAM_ERROR;
+        
+        fseek(apngFile, len, SEEK_CUR);
+    }
+    
+    crc = read32(apngFile);
+    
+    return LIBAPNGITER_ERROR_CODE_OK;
 }
 
 // Open an APNG file and verify that the file contains APNG data.
@@ -604,7 +753,7 @@ static void make_out(libapngiter_state *state, libapngiter_frame *outFrame)
 // this method can't be used to open a regular PNG data file,
 // only APNG files are supported.
 
-libapngiter_state *libapngiter_open(char *apngPath, libapngiter_frame_func frame_func, void *userData)
+libapngiter_state *libapngiter_open(char *apngPath)
 {
     FILE *fp;
     uint8_t sig[8];
@@ -649,8 +798,6 @@ libapngiter_state *libapngiter_open(char *apngPath, libapngiter_frame_func frame
     libapngiter_state *state = malloc(sizeof(libapngiter_state));
     memset(state, 0, sizeof(libapngiter_state));
     state->f = fp;
-    state->frame_func = frame_func;
-    state->userData = userData;
 
     APNGCommonData *commonPtr = &state->common;
     commonPtr->hasTRNS = 0;
@@ -765,155 +912,27 @@ void libapngiter_close(libapngiter_state *state)
     free(state);
 }
 
+typedef struct {
+    libapngiter_frame_func frame_func;
+    void *user_data;
+    int frame_received;
+} next_frame_data;
 
-uint32_t libapngiter_next_frame(libapngiter_state *state, libapngiter_frame *outFrame)
+static int next_frame_func(libapngiter_frame *frame, void *user_data)
 {
-    uint32_t    i, j;
-    uint32_t    len, chunk, crc;
-    uint8_t   c;
-    APNGCommonData *commonPtr = &state->common;
-    FILE *apngFile = state->f;
-    
-    
-    if (feof(apngFile)) {
-        return LIBAPNGITER_ERROR_CODE_FILE_END;
-    }
-    
-    len  = read32(apngFile);
-    chunk = read32(apngFile);
-    
-    if (chunk == PNG_CHUNK_PLTE)
-    {
-        uint32_t col;
-        for (i=0; i<len; i++)
-        {
-            fread(&c, 1, 1, apngFile);
-            col = i/3;
-            if (col<256)
-            {
-                commonPtr->pal[col][i%3] = c;
-                commonPtr->palsize = col+1;
-            }
-        }
-    }
-    else if (chunk == PNG_CHUNK_tRNS)
-    {
-        state->common.hasTRNS = 1;
-        for (i=0; i<len; i++)
-        {
-            fread(&c, 1, 1, apngFile);
-            if (i<256)
-            {
-                commonPtr->trns[i] = c;
-                commonPtr->trnssize = i+1;
-            }
-        }
-        if (state->coltype == 0) {
-            commonPtr->trns1 = readshort(&commonPtr->trns[0]);
-        } else if (state->coltype == 2) {
-            commonPtr->trns1 = readshort(&commonPtr->trns[0]);
-            commonPtr->trns2 = readshort(&commonPtr->trns[2]);
-            commonPtr->trns3 = readshort(&commonPtr->trns[4]);
-        }
-    }
-    else if (chunk == PNG_CHUNK_acTL)
-    {
-        state->num_frames = read32(apngFile);
-        state->num_plays  = read32(apngFile);
-    }
-    else if (chunk == PNG_CHUNK_fcTL)
-    {
-        if ((state->num_fctl == state->num_idat) && (state->num_idat > 0))
-        {
-            if (state->dop == PNG_DISPOSE_OP_PREVIOUS) {
-                memcpy(state->pRest, state->pOut, state->outimg);
-            }
-            
-            compose(state);
-            make_out(state, outFrame);
-            
-            if (state->dop == PNG_DISPOSE_OP_PREVIOUS) {
-                memcpy(state->pOut, state->pRest, state->outimg);
-            } else if (state->dop == PNG_DISPOSE_OP_BACKGROUND) {
-                state->pDst = state->pOut + state->delta_y * state->outrow + state->delta_x * 4;
-                
-                for (j = 0; j < state->delta_height; j++)
-                {
-                    memset(state->pDst, 0, state->delta_width * 4);
-                    state->pDst += state->outrow;
-                }
-            }
-        }
-        
-        state->seq = read32(apngFile);
-        state->delta_width = read32(apngFile);
-        state->delta_height = read32(apngFile);
-        state->delta_x = read32(apngFile);
-        state->delta_y = read32(apngFile);
-        state->delay_num = read16(apngFile);
-        state->delay_den = read16(apngFile);
-        fread(&state->dop, 1, 1, apngFile);
-        fread(&state->bop, 1, 1, apngFile);
-        
-        if (state->num_fctl == 0)
-        {
-            state->bop = PNG_BLEND_OP_SOURCE;
-            if (state->dop == PNG_DISPOSE_OP_PREVIOUS)
-                state->dop = PNG_DISPOSE_OP_BACKGROUND;
-        }
-        
-        if (!(state->coltype & 4) && !(commonPtr->hasTRNS)) {
-            state->bop = PNG_BLEND_OP_SOURCE;
-        }
-        
-        state->rowbytes = rowbytes(state->pixeldepth, state->delta_width);
-        state->num_fctl++;
-    }
-    else if (chunk == PNG_CHUNK_IDAT)
-    {
-        if (state->num_fctl > state->num_idat)
-        {
-            state->zsize = 0;
-            state->num_idat++;
-        }
-        fread(state->pZBuffer + state->zsize, 1, len, apngFile);
-        state->zsize += len;
-    }
-    else if (chunk == PNG_CHUNK_fdAT)
-    {
-        state->seq = read32(apngFile);
-        len -= 4;
-        if (state->num_fctl > state->num_idat)
-        {
-            state->zsize = 0;
-            state->num_idat++;
-        }
-        fread(state->pZBuffer + state->zsize, 1, len, apngFile);
-        state->zsize += len;
-    }
-    else if (chunk == PNG_CHUNK_IEND)
-    {
-        compose(state);        
-        make_out(state, outFrame);
-        return LIBAPNGITER_ERROR_CODE_STREAM_COMPLETE;
-    }
-    else
-    {
-        c = (uint8_t)(chunk>>24);
-        if (notabc(c)) return LIBAPNGITER_ERROR_CODE_STREAM_ERROR;
-        c = (uint8_t)((chunk>>16) & 0xFF);
-        if (notabc(c)) return LIBAPNGITER_ERROR_CODE_STREAM_ERROR;
-        c = (uint8_t)((chunk>>8) & 0xFF);
-        if (notabc(c)) return LIBAPNGITER_ERROR_CODE_STREAM_ERROR;
-        c = (uint8_t)(chunk & 0xFF);
-        if (notabc(c)) return LIBAPNGITER_ERROR_CODE_STREAM_ERROR;
-        
-        fseek(apngFile, len, SEEK_CUR);
-    }
-    
-    crc = read32(apngFile);
-    
-    return LIBAPNGITER_ERROR_CODE_OK;
+    next_frame_data *frame_data = (next_frame_data *)user_data;
+    frame_data->frame_received = 1;
+    return frame_data->frame_func(frame, frame_data->user_data);
+}
+
+int libapngiter_next_frame(libapngiter_state *state, libapngiter_frame_func frame_func, void *user_data)
+{
+    next_frame_data frame_data = {frame_func, user_data, 0};
+    int res;
+    do {
+        res = iter_next_chunk(state, next_frame_func, &frame_data);
+    } while (res == LIBAPNGITER_ERROR_CODE_OK && !frame_data.frame_received);
+    return res;
 }
 
 // Calculate the wall clock time that a specific frame will be displayed for.
@@ -922,10 +941,13 @@ uint32_t libapngiter_next_frame(libapngiter_state *state, libapngiter_frame *out
 
 //#define DEBUG_PRINT_FRAME_DURATION
 
-float libapng_frame_delay(uint32_t numerator, uint32_t denominator)
+float libapngiter_frame_delay(libapngiter_frame *frame)
 {
     // frameDuration : time that specific frame will be visible
     // 1/100 is the default if both numerator and denominator are zero
+    
+    uint32_t numerator = frame->delay_num;
+    uint32_t denominator = frame->delay_den;
     
     float frameDuration;
     float fnumerator;

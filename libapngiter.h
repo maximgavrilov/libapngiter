@@ -66,10 +66,11 @@ typedef struct libapngiter_frame {
     uint32_t bpp;
 } libapngiter_frame;
 
-typedef int (*libapngiter_frame_func)(libapngiter_frame *frame, void *userData);
+typedef int (*libapngiter_frame_func)(libapngiter_frame *frame, void *user_data);
 
-libapngiter_state *libapngiter_open(char *apngPath, libapngiter_frame_func frame_func, void *userData);
+libapngiter_state *libapngiter_open(char *apngPath);
+int libapngiter_next_frame(libapngiter_state *state, libapngiter_frame_func frame_func, void *user_data);
 void libapngiter_close(libapngiter_state *state);
-uint32_t libapngiter_next_frame(libapngiter_state *state, libapngiter_frame *outFrame);
 
+float libapngiter_frame_delay(libapngiter_frame *frame);
 #endif
