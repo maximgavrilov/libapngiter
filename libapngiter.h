@@ -42,7 +42,7 @@
 
 #define LIBAPNGITER_ERROR_CODE_OK 0
 #define LIBAPNGITER_ERROR_CODE_INVALID_INPUT 1
-#define LIBAPNGITER_ERROR_CODE_INVALID_FILENAME 2
+#define LIBAPNGITER_ERROR_CODE_INVALID_FILE 2
 #define LIBAPNGITER_ERROR_CODE_WRITE_FAILED 3
 #define LIBAPNGITER_ERROR_CODE_READ_FAILED 4
 #define LIBAPNGITER_ERROR_CODE_FILE_END 5
@@ -68,7 +68,7 @@ typedef struct libapngiter_frame {
 
 typedef int (*libapngiter_frame_func)(libapngiter_frame *frame, void *user_data);
 
-libapngiter_state *libapngiter_open(char *apngPath);
+int libapngiter_open(char *apngPath, libapngiter_state **state);
 int libapngiter_next_frame(libapngiter_state *state, libapngiter_frame_func frame_func, void *user_data);
 void libapngiter_close(libapngiter_state *state);
 

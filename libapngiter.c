@@ -766,36 +766,28 @@ static int next_frame_func(libapngiter_frame *frame, void *user_data)
 // this method can't be used to open a regular PNG data file,
 // only APNG files are supported.
 
-libapngiter_state *libapngiter_open(char *apngPath)
+int libapngiter_open(char *apngPath, libapngiter_state **new_state)
 {
     FILE *fp;
     uint8_t sig[8];
     uint32_t len, chunk, crc;
     uint8_t channels;
 
+    assert(new_state);
+    
+    *new_state = NULL;
     fp = fopen(apngPath, "rb");
     if (fp == NULL) {
-        return NULL;
-    }
-    
-    // FIXME: scan for APNG specific
-    
-    if (0) {
-        //retcode = LIBAPNGITER_ERROR_CODE_INVALID_FILENAME;
-        return NULL;
+        return LIBAPNGITER_ERROR_CODE_INVALID_FILE;
     }
     
     if (fread(sig, 1, 8, fp) != 8) {
-        // retcode = LIBAPNGITER_ERROR_CODE_INVALID_INPUT;
-        // printf("Error: can't read the sig\n");
-        return NULL;
+        return LIBAPNGITER_ERROR_CODE_INVALID_INPUT;
     }
     
     
     if (memcmp(sig, png_sign, 8) != 0) {
-        // retcode = LIBAPNGITER_ERROR_CODE_INVALID_INPUT;
-        // printf("Error: wrong PNG sig\n");
-        return NULL;
+        return LIBAPNGITER_ERROR_CODE_INVALID_INPUT;
     }
     
     
@@ -803,9 +795,7 @@ libapngiter_state *libapngiter_open(char *apngPath)
     chunk = read32(fp);
     
     if ((len != 13) || (chunk != PNG_CHUNK_IHDR)) { /* IHDR */
-        // retcode = LIBAPNGITER_ERROR_CODE_INVALID_INPUT;
-        // printf("IHDR missing\n");
-        return NULL;
+        return LIBAPNGITER_ERROR_CODE_INVALID_INPUT;
     }
     
     libapngiter_state *state = malloc(sizeof(libapngiter_state));
@@ -895,10 +885,11 @@ libapngiter_state *libapngiter_open(char *apngPath)
     
     if (state->interl != 0 || state->filter != 0) {
         libapngiter_close(state);
-        // retcode = LIBAPNGITER_ERROR_CODE_NOT_SUPPORTED
-        return NULL;
+        return LIBAPNGITER_ERROR_CODE_NOT_SUPPORTED;
     }
-    return state;
+    
+    *new_state = state;
+    return LIBAPNGITER_ERROR_CODE_OK;
 }
 
 int libapngiter_next_frame(libapngiter_state *state, libapngiter_frame_func frame_func, void *user_data)
