@@ -748,6 +748,19 @@ static int iter_next_chunk(libapngiter_state *state, libapngiter_frame_func fram
     return LIBAPNGITER_ERROR_CODE_OK;
 }
 
+typedef struct {
+    libapngiter_frame_func frame_func;
+    void *user_data;
+    int frame_received;
+} next_frame_data;
+
+static int next_frame_func(libapngiter_frame *frame, void *user_data)
+{
+    next_frame_data *frame_data = (next_frame_data *)user_data;
+    frame_data->frame_received = 1;
+    return frame_data->frame_func(frame, frame_data->user_data);
+}
+
 // Open an APNG file and verify that the file contains APNG data.
 // If the file can't be opened then NULL is returned. Note that
 // this method can't be used to open a regular PNG data file,
@@ -888,6 +901,16 @@ libapngiter_state *libapngiter_open(char *apngPath)
     return state;
 }
 
+int libapngiter_next_frame(libapngiter_state *state, libapngiter_frame_func frame_func, void *user_data)
+{
+    next_frame_data frame_data = {frame_func, user_data, 0};
+    int res;
+    do {
+        res = iter_next_chunk(state, next_frame_func, &frame_data);
+    } while (res == LIBAPNGITER_ERROR_CODE_OK && !frame_data.frame_received);
+    return res;
+}
+
 void libapngiter_close(libapngiter_state *state)
 {
     inflateEnd(&state->common.zstream);
@@ -910,29 +933,6 @@ void libapngiter_close(libapngiter_state *state)
     
     //printf("all done\n");
     free(state);
-}
-
-typedef struct {
-    libapngiter_frame_func frame_func;
-    void *user_data;
-    int frame_received;
-} next_frame_data;
-
-static int next_frame_func(libapngiter_frame *frame, void *user_data)
-{
-    next_frame_data *frame_data = (next_frame_data *)user_data;
-    frame_data->frame_received = 1;
-    return frame_data->frame_func(frame, frame_data->user_data);
-}
-
-int libapngiter_next_frame(libapngiter_state *state, libapngiter_frame_func frame_func, void *user_data)
-{
-    next_frame_data frame_data = {frame_func, user_data, 0};
-    int res;
-    do {
-        res = iter_next_chunk(state, next_frame_func, &frame_data);
-    } while (res == LIBAPNGITER_ERROR_CODE_OK && !frame_data.frame_received);
-    return res;
 }
 
 // Calculate the wall clock time that a specific frame will be displayed for.
