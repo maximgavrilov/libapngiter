@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2009 Max Stepin
  * maxst at users.sourceforge.net
- * Iteration verison (c) 2013 Maxim Gavrilov
+ * Iteration verison + 'ccCL' chunks (c) 2013 Maxim Gavrilov
  *
  * zlib license
  * ------------
@@ -55,6 +55,8 @@ typedef struct libapngiter_state libapngiter_state;
 typedef struct libapngiter_frame {
     uint32_t* framebuffer;
     uint32_t framei;
+    uint32_t center_x; // ccCL
+    uint32_t center_y; // ccCL
     uint32_t width;
     uint32_t height;
     uint32_t delta_x;

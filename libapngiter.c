@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2009 Max Stepin
  * maxst at users.sourceforge.net
- * Iteration verison (c) 2013 Maxim Gavrilov
+ * Iteration verison + 'ccCL' chunks (c) 2013 Maxim Gavrilov
  *
  * zlib license
  * ------------
@@ -40,6 +40,8 @@
 #define PNG_CHUNK_acTL 0x6163544C
 #define PNG_CHUNK_fcTL 0x6663544C
 #define PNG_CHUNK_fdAT 0x66644154
+
+#define PNG_CHUNK_ccCL 0x6363434c
 
 #define PNG_DISPOSE_OP_NONE        0x00
 #define PNG_DISPOSE_OP_BACKGROUND  0x01
@@ -80,6 +82,9 @@ struct libapngiter_state {
     uint32_t rowbytes;
     uint32_t width;
     uint32_t height;
+    
+    uint32_t center_x; // ccCL
+    uint32_t center_y; // ccCL
     
     uint32_t seq;
     uint32_t delta_width;
@@ -550,6 +555,8 @@ static void make_out(libapngiter_state *state, libapngiter_frame_func frame_func
     frame.framei = state->num_idat - 1;
     frame.width = state->width;
     frame.height = state->height;
+    frame.center_x = state->center_x;
+    frame.center_y = state->center_y;
     frame.delta_x = state->delta_x;
     frame.delta_y = state->delta_y;
     frame.delta_width = state->delta_width;
@@ -722,6 +729,14 @@ static int iter_next_chunk(libapngiter_state *state, libapngiter_frame_func fram
         }
         fread(state->pZBuffer + state->zsize, 1, len, apngFile);
         state->zsize += len;
+    }
+    else if (chunk == PNG_CHUNK_ccCL)
+    {
+        fread(&c, 1, 1, apngFile);
+        if (c == 1) { // version 1
+            state->center_x = read32(apngFile);
+            state->center_y = read32(apngFile);
+        }
     }
     else if (chunk == PNG_CHUNK_IEND)
     {
