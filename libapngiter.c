@@ -553,6 +553,8 @@ static void make_out(libapngiter_state *state, libapngiter_frame_func frame_func
     libapngiter_frame frame;
     frame.framebuffer = (uint32_t*)state->pOut;
     frame.framei = state->num_idat - 1;
+    frame.num_frames = state->num_frames;
+    frame.num_plays = state->num_plays;
     frame.width = state->width;
     frame.height = state->height;
     frame.center_x = state->center_x;
@@ -600,9 +602,9 @@ static void make_out(libapngiter_state *state, libapngiter_frame_func frame_func
         state->common.lastOriginPixel = frame.framebuffer[0];
     }
     
-    frame_func(&frame, user_data);
-//    uint32_t result = frame_func(framebuffer, framei, width, height, delta_x, delta_y, delta_width, delta_height, delay_num, delay_den, bpp, userData);
-//    assert(result == 0);
+    if (frame_func) {
+        frame_func(&frame, user_data);
+    }
 }
 
 static int iter_next_chunk(libapngiter_state *state, libapngiter_frame_func frame_func, void *user_data)
@@ -740,6 +742,9 @@ static int iter_next_chunk(libapngiter_state *state, libapngiter_frame_func fram
     }
     else if (chunk == PNG_CHUNK_IEND)
     {
+        if (state->num_idat == 0) {
+            state->num_idat++;
+        }
         compose(state);
         make_out(state, frame_func, user_data);
         return LIBAPNGITER_ERROR_CODE_STREAM_COMPLETE;
@@ -781,13 +786,13 @@ static int next_frame_func(libapngiter_frame *frame, void *user_data)
 // this method can't be used to open a regular PNG data file,
 // only APNG files are supported.
 
-int libapngiter_open(char *apngPath, libapngiter_state **new_state)
+int libapngiter_open(const char *apngPath, libapngiter_state **new_state)
 {
     FILE *fp;
     uint8_t sig[8];
     uint32_t len, chunk, crc;
     uint8_t channels;
-
+    
     assert(new_state);
     
     *new_state = NULL;
@@ -848,6 +853,9 @@ int libapngiter_open(char *apngPath, libapngiter_state **new_state)
     
     state->num_frames = 1;
     state->num_plays = 0;
+    
+    state->center_x = 0;
+    state->center_y = 0;
     
     state->num_fctl = 0;
     state->num_idat = 0;

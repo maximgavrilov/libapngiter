@@ -55,6 +55,8 @@ typedef struct libapngiter_state libapngiter_state;
 typedef struct libapngiter_frame {
     uint32_t* framebuffer;
     uint32_t framei;
+    uint32_t num_frames;
+    uint32_t num_plays;
     uint32_t center_x; // ccCL
     uint32_t center_y; // ccCL
     uint32_t width;
@@ -70,7 +72,7 @@ typedef struct libapngiter_frame {
 
 typedef int (*libapngiter_frame_func)(libapngiter_frame *frame, void *user_data);
 
-int libapngiter_open(char *apngPath, libapngiter_state **state);
+int libapngiter_open(const char *apngPath, libapngiter_state **state);
 int libapngiter_next_frame(libapngiter_state *state, libapngiter_frame_func frame_func, void *user_data);
 void libapngiter_close(libapngiter_state *state);
 
