@@ -73,6 +73,7 @@ typedef struct libapngiter_frame {
 typedef int (*libapngiter_frame_func)(libapngiter_frame *frame, void *user_data);
 
 int libapngiter_open(const char *apngPath, libapngiter_state **state);
+int libapngiter_open_file(FILE *apng_file, libapngiter_state **state);
 int libapngiter_next_frame(libapngiter_state *state, libapngiter_frame_func frame_func, void *user_data);
 void libapngiter_close(libapngiter_state *state);
 

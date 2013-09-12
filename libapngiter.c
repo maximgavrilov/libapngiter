@@ -789,9 +789,6 @@ static int next_frame_func(libapngiter_frame *frame, void *user_data)
 int libapngiter_open(const char *apngPath, libapngiter_state **new_state)
 {
     FILE *fp;
-    uint8_t sig[8];
-    uint32_t len, chunk, crc;
-    uint8_t channels;
     
     assert(new_state);
     
@@ -800,6 +797,15 @@ int libapngiter_open(const char *apngPath, libapngiter_state **new_state)
     if (fp == NULL) {
         return LIBAPNGITER_ERROR_CODE_INVALID_FILE;
     }
+    
+    return libapngiter_open_file(fp, new_state);
+}
+
+int libapngiter_open_file(FILE *fp, libapngiter_state **new_state)
+{
+    uint8_t sig[8];
+    uint32_t len, chunk, crc;
+    uint8_t channels;
     
     if (fread(sig, 1, 8, fp) != 8) {
         return LIBAPNGITER_ERROR_CODE_INVALID_INPUT;
