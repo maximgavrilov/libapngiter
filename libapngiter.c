@@ -97,11 +97,11 @@ struct libapngiter_state {
     uint32_t num_frames;
     uint32_t num_plays;
     
-    uint32_t num_fctl, num_idat;
-    uint8_t  dop, bop;
-    uint8_t  depth, pixeldepth, bpp;
-    uint8_t  coltype, compr, filter, interl;
-    uint32_t    outrow, outimg;
+    uint32_t  num_fctl, num_idat;
+    uint8_t   dop, bop;
+    uint8_t   depth, pixeldepth, bpp;
+    uint8_t   coltype, compr, filter, interl;
+    uint32_t  outrow, outimg;
     uint8_t * pOut;
     uint8_t * pRest;
     uint8_t * pTemp;
@@ -684,6 +684,9 @@ static int iter_next_chunk(libapngiter_state *state, libapngiter_frame_func fram
                     state->pDst += state->outrow;
                 }
             }
+        } else if (state->num_fctl == 0 && state->zsize > 0) {
+            compose(state);
+            make_out(state, frame_func, user_data);
         }
         
         state->seq = read32(apngFile);

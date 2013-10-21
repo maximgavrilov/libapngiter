@@ -54,6 +54,7 @@ typedef struct libapngiter_state libapngiter_state;
 
 typedef struct libapngiter_frame {
     uint32_t* framebuffer;
+    uint8_t preview;
     uint32_t framei;
     uint32_t num_frames;
     uint32_t num_plays;
