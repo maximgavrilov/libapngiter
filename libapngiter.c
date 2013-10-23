@@ -950,9 +950,6 @@ void libapngiter_close(libapngiter_state *state)
     if (state->pRest) {
         free(state->pRest);
     }
-    if (state->f) {
-        fclose(state->f);
-    }
     
     //printf("all done\n");
     free(state);
