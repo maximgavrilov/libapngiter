@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name         = "libapngiter"
-  s.version      = "1.0"
+  s.version      = "0.1"
   s.summary      = "iteration port libapng from maxst.users.sourceforge.net"
   s.homepage     = "https://github.com/maximgavrilov/libapngiter"
   s.license      = 'MIT'
