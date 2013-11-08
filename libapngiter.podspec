@@ -7,4 +7,5 @@ Pod::Spec.new do |s|
   s.author       = { "Maxim Gavrilov" => "maxim.gavrilov@gmail.com" }
   s.source       = { :git => "https://github.com/maximgavrilov/libapngiter.git" }
   s.platform     = :ios
+  s.source_files = 'libapngiter'
 end
